@@ -9,7 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 
 # 必要なパッケージの読み込み（なければインストール）
-required_packages <- c("readxl", "dplyr", "lubridate", "ggplot2", "sf", "knitr", "kableExtra")
+required_packages <- c("readxl", "dplyr", "lubridate", "ggplot2", "sf", "knitr", "kableExtra", "scales")
 new_packages <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
 if(length(new_packages)) install.packages(new_packages, repos = "https://cran.rstudio.com/")
 
@@ -17,10 +17,10 @@ library(readxl)
 library(dplyr)
 library(lubridate)
 library(ggplot2)
-# library(jpmap) # jpmapは利用不可のため除外
 library(sf)
 library(knitr)
 library(kableExtra)
+library(scales)
 ```
 
 ## データの読み込みと前処理
@@ -61,9 +61,35 @@ ggplot(cumulative_users, aes(x = 履修完了日, y = 累積延べ受講者数))
 
 ```
 
-## 2. 都道府県別 延べ受講者数（表）
+## 2. 都道府県別 延べ受講者数
 
-```{r prefecture_table, echo = FALSE}
+```{r prefecture_map, echo=FALSE, fig.width=12, fig.height=8, dpi=300}
+# GeoJSONファイルから日本地図データを読み込み
+japan_map <- st_read("japan.geojson", quiet = TRUE)
+
+# 地図データと受講者数データを直接結合（都道府県名は既に正しい形式）
+map_data <- japan_map %>%
+  left_join(pref_users, by = c("nam_ja" = "勤務先都道府県"))
+
+# 地図の描画（受講者数で色分け）
+ggplot(map_data) +
+  geom_sf(aes(fill = 延べ受講者数), color = "white", size = 0.3) +
+  scale_fill_viridis_c(option = "plasma", na.value = "grey90", name = "延べ受講者数",
+                       trans = "sqrt", labels = scales::comma) +
+  theme_void() +
+  theme(
+    text = element_text(family = "HiraginoSans-W3", size = 16),
+    legend.position = "bottom",
+    legend.key.width = unit(3, "cm"),
+    legend.key.height = unit(1, "cm"),
+    legend.title = element_text(size = 16),
+    legend.text = element_text(size = 14),
+    plot.title = element_text(hjust = 0.5, size = 20, margin = margin(b = 30))
+  ) +
+  labs(title = "勤務先都道府県別 延べ受講者数")
+```
+
+```{r prefecture_summary, echo = FALSE}
 # 勤務先都道府県ごとに延べ受講者数を集計
 pref_users <- df %>%
   filter(!is.na(勤務先都道府県) & 勤務先都道府県 != "") %>% # 欠損値や空文字を除外
@@ -74,39 +100,9 @@ pref_users <- df %>%
 # 表の表示
 kable(pref_users, caption = "勤務先都道府県別 延べ受講者数") %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
-
 ```
 
-## 3. 都道府県別 延べ受講者数（地図） - スキップ
-
-```{r prefecture_map, eval=FALSE}
-# # jpmapパッケージが利用できないため、このセクションはスキップします。
-# # jpmap用の都道府県名に変換する必要があるか確認
-# # unique(pref_users$勤務先都道府県) # データ内の都道府県名を確認
-# # jpmap::jpnprefs$name # jpmapが認識する都道府県名
-#
-# # 必要であれば、jpmapが認識する名前に変換
-# # 例: pref_users <- pref_users %>% mutate(勤務先都道府県 = recode(勤務先都道府県, "東京都" = "東京"))
-#
-# # 地図データの準備
-# jpn_pref_map <- jpmap::jpn_pref(map_area = c("hokkai", "tohoku", "kanto", "chubu", "kinki", "chugoku", "shikoku", "kyushu"))
-#
-# # 地図データと集計データを結合
-# # jpmapは 'name' 列で結合するため、集計データの列名を合わせる
-# pref_users_map <- pref_users %>% rename(name = 勤務先都道府県)
-# map_data <- left_join(jpn_pref_map, pref_users_map, by = "name")
-#
-# # 地図の描画（受講者数で色分け）
-# ggplot(map_data) +
-#   geom_sf(aes(fill = 延べ受講者数)) +
-#   scale_fill_viridis_c(option = "plasma", na.value = "grey90", name = "延べ受講者数") +
-#   theme_void() +
-#   labs(title = "勤務先都道府県別 延べ受講者数")
-#
-cat("jpmapパッケージが利用できないため、地図描画はスキップされました。")
-```
-
-## 4. 所属学会別 延べ受講者数（表と棒グラフ）
+## 3. 所属学会別 延べ受講者数（表と棒グラフ）
 
 ```{r society_summary, echo = FALSE}
 # 所属学会ごとに延べ受講者数を集計
