@@ -1,0 +1,130 @@
+---
+title: "eLearning 受講状況レポート"
+author: "CoolCline"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+# 必要なパッケージの読み込み（なければインストール）
+required_packages <- c("readxl", "dplyr", "lubridate", "ggplot2", "sf", "knitr", "kableExtra")
+new_packages <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
+if(length(new_packages)) install.packages(new_packages, repos = "https://cran.rstudio.com/")
+
+library(readxl)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+# library(jpmap) # jpmapは利用不可のため除外
+library(sf)
+library(knitr)
+library(kableExtra)
+```
+
+## データの読み込みと前処理
+
+```{r load_data, echo = FALSE}
+# Excelファイルの読み込み
+df <- read_excel("eLearning_data_250409.xlsx")
+
+# 列名を確認
+# print(colnames(df)) # ["所属学会", "生年月日", "勤務先名称", "所属(部署)", "勤務先都道府県", "履修完了日"]
+
+# 履修完了日をDate型に変換
+df <- df %>%
+  mutate(履修完了日 = as.Date(履修完了日))
+
+# 簡単なデータ確認
+# head(df)
+# summary(df)
+```
+
+## 1. 延べ受講者数の推移
+
+```{r trend_plot, echo = FALSE}
+# 履修完了日ごとに延べ受講者数を集計し、累積数を計算
+cumulative_users <- df %>%
+  filter(!is.na(履修完了日)) %>% # 念のためNAを除外
+  group_by(履修完了日) %>%
+  summarise(日次受講者数 = n()) %>%
+  arrange(履修完了日) %>%
+  mutate(累積延べ受講者数 = cumsum(日次受講者数))
+
+# 累積推移グラフの描画
+ggplot(cumulative_users, aes(x = 履修完了日, y = 累積延べ受講者数)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "累積延べ受講者数の推移", x = "履修完了日", y = "累積延べ受講者数") +
+  theme_minimal() + theme(text = element_text(family = "HiraginoSans-W3"))
+
+```
+
+## 2. 都道府県別 延べ受講者数（表）
+
+```{r prefecture_table, echo = FALSE}
+# 勤務先都道府県ごとに延べ受講者数を集計
+pref_users <- df %>%
+  filter(!is.na(勤務先都道府県) & 勤務先都道府県 != "") %>% # 欠損値や空文字を除外
+  group_by(勤務先都道府県) %>%
+  summarise(延べ受講者数 = n()) %>%
+  arrange(desc(延べ受講者数)) # 受講者数が多い順にソート
+
+# 表の表示
+kable(pref_users, caption = "勤務先都道府県別 延べ受講者数") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
+
+```
+
+## 3. 都道府県別 延べ受講者数（地図） - スキップ
+
+```{r prefecture_map, eval=FALSE}
+# # jpmapパッケージが利用できないため、このセクションはスキップします。
+# # jpmap用の都道府県名に変換する必要があるか確認
+# # unique(pref_users$勤務先都道府県) # データ内の都道府県名を確認
+# # jpmap::jpnprefs$name # jpmapが認識する都道府県名
+#
+# # 必要であれば、jpmapが認識する名前に変換
+# # 例: pref_users <- pref_users %>% mutate(勤務先都道府県 = recode(勤務先都道府県, "東京都" = "東京"))
+#
+# # 地図データの準備
+# jpn_pref_map <- jpmap::jpn_pref(map_area = c("hokkai", "tohoku", "kanto", "chubu", "kinki", "chugoku", "shikoku", "kyushu"))
+#
+# # 地図データと集計データを結合
+# # jpmapは 'name' 列で結合するため、集計データの列名を合わせる
+# pref_users_map <- pref_users %>% rename(name = 勤務先都道府県)
+# map_data <- left_join(jpn_pref_map, pref_users_map, by = "name")
+#
+# # 地図の描画（受講者数で色分け）
+# ggplot(map_data) +
+#   geom_sf(aes(fill = 延べ受講者数)) +
+#   scale_fill_viridis_c(option = "plasma", na.value = "grey90", name = "延べ受講者数") +
+#   theme_void() +
+#   labs(title = "勤務先都道府県別 延べ受講者数")
+#
+cat("jpmapパッケージが利用できないため、地図描画はスキップされました。")
+```
+
+## 4. 所属学会別 延べ受講者数（表と棒グラフ）
+
+```{r society_summary, echo = FALSE}
+# 所属学会ごとに延べ受講者数を集計
+society_users <- df %>%
+  filter(!is.na(所属学会) & 所属学会 != "") %>% # 欠損値や空文字を除外
+  group_by(所属学会) %>%
+  summarise(延べ受講者数 = n()) %>%
+  arrange(desc(延べ受講者数))
+
+# 表の表示
+kable(society_users, caption = "所属学会別 延べ受講者数") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
+
+# 棒グラフの描画（上位N件などに絞ることも可能）
+# 上位15件を表示する場合
+# society_users_top <- society_users %>% top_n(15, 延べ受講者数)
+ggplot(society_users, aes(x = reorder(所属学会, 延べ受講者数), y = 延べ受講者数)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  coord_flip() + # 横向き棒グラフ
+  labs(title = "所属学会別 延べ受講者数", x = "所属学会", y = "延べ受講者数") +
+  theme_minimal() + theme(text = element_text(family = "HiraginoSans-W3"))
