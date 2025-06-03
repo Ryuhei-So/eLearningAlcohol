@@ -63,6 +63,19 @@ ggplot(cumulative_users, aes(x = 履修完了日, y = 累積延べ受講者数))
 
 ## 2. 都道府県別 延べ受講者数
 
+```{r prefecture_summary, echo = FALSE}
+# 勤務先都道府県ごとに延べ受講者数を集計
+pref_users <- df %>%
+  filter(!is.na(勤務先都道府県) & 勤務先都道府県 != "") %>% # 欠損値や空文字を除外
+  group_by(勤務先都道府県) %>%
+  summarise(延べ受講者数 = n()) %>%
+  arrange(desc(延べ受講者数)) # 受講者数が多い順にソート
+
+# 表の表示
+kable(pref_users, caption = "勤務先都道府県別 延べ受講者数") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
+```
+
 ```{r prefecture_map, echo=FALSE, fig.width=12, fig.height=8, dpi=300}
 # GeoJSONファイルから日本地図データを読み込み
 japan_map <- st_read("japan.geojson", quiet = TRUE)
@@ -89,20 +102,56 @@ ggplot(map_data) +
   labs(title = "勤務先都道府県別 延べ受講者数")
 ```
 
-```{r prefecture_summary, echo = FALSE}
-# 勤務先都道府県ごとに延べ受講者数を集計
-pref_users <- df %>%
-  filter(!is.na(勤務先都道府県) & 勤務先都道府県 != "") %>% # 欠損値や空文字を除外
-  group_by(勤務先都道府県) %>%
-  summarise(延べ受講者数 = n()) %>%
-  arrange(desc(延べ受講者数)) # 受講者数が多い順にソート
+## 3. 対人口比受講者数分析
 
-# 表の表示
-kable(pref_users, caption = "勤務先都道府県別 延べ受講者数") %>%
+```{r population_data, echo=FALSE}
+# 都道府県別人口データの読み込み
+source("japan_population_2024.R")
+
+# 受講者数と人口データを結合して対人口比を計算
+pref_population_analysis <- pref_users %>%
+  left_join(japan_population_2024, by = c("勤務先都道府県" = "prefecture")) %>%
+  mutate(
+    受講率_per_10万人 = round((延べ受講者数 / population) * 100000, 2),
+    人口カテゴリ = case_when(
+      population >= 5000000 ~ "大都市圏(500万人以上)",
+      population >= 1000000 ~ "中規模県(100-500万人)",
+      TRUE ~ "小規模県(100万人未満)"
+    )
+  ) %>%
+  arrange(desc(受講率_per_10万人))
+
+# 対人口比上位・下位の表示
+kable(pref_population_analysis, 
+      caption = "都道府県別 対人口比受講者数（10万人あたり）",
+      col.names = c("都道府県", "受講者数", "人口", "人口(千人)", "10万人あたり受講者数", "人口カテゴリ")) %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
 ```
 
-## 3. 所属学会別 延べ受講者数（表と棒グラフ）
+```{r prefecture_per_capita_map, echo=FALSE, fig.width=12, fig.height=8, dpi=300}
+# 地図データと対人口比データを結合
+map_data_per_capita <- japan_map %>%
+  left_join(pref_population_analysis, by = c("nam_ja" = "勤務先都道府県"))
+
+# 対人口比受講者数の地図描画
+ggplot(map_data_per_capita) +
+  geom_sf(aes(fill = 受講率_per_10万人), color = "white", size = 0.3) +
+  scale_fill_viridis_c(option = "plasma", na.value = "grey90", name = "10万人あたり\n受講者数",
+                       labels = scales::comma) +
+  theme_void() +
+  theme(
+    text = element_text(family = "HiraginoSans-W3", size = 16),
+    legend.position = "bottom",
+    legend.key.width = unit(3, "cm"),
+    legend.key.height = unit(1, "cm"),
+    legend.title = element_text(size = 16),
+    legend.text = element_text(size = 14),
+    plot.title = element_text(hjust = 0.5, size = 20, margin = margin(b = 30))
+  ) +
+  labs(title = "都道府県別 対人口比受講者数（10万人あたり）")
+```
+
+## 4. 所属学会別 延べ受講者数（表と棒グラフ）
 
 ```{r society_summary, echo = FALSE}
 # 所属学会ごとに延べ受講者数を集計
